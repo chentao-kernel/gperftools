@@ -121,7 +121,12 @@ DEFINE_bool(only_mmap_profile,
             "If heap-profiling is on, only profile mmap, mremap, and sbrk; "
             "do not profile malloc/new/etc");
 
-
+DEFINE_int32(heap_profile_size,
+             EnvToInt("HEAP_PROFILE_SIZE", 0),
+             "Filter target malloc size");
+DEFINE_bool(heap_profile_no_stack,
+            EnvToBool("HEAP_PROFILE_NO_STACK", false),
+            "Track no stack");
 //----------------------------------------------------------------------
 // Locking
 //----------------------------------------------------------------------
@@ -139,6 +144,20 @@ static SpinLock heap_lock(SpinLock::LINKER_INITIALIZED);
 //----------------------------------------------------------------------
 
 static LowLevelAlloc::Arena *heap_profiler_memory;
+static int heap_profile_size_cnt = EnvToInt("HEAP_PROFILE_SIZE_CNT", 10);
+
+static bool is_target_size(int size) {
+  /* default size means trace all */
+  if (FLAGS_heap_profile_size == 0) {
+    return true;
+  }
+
+  if (size == FLAGS_heap_profile_size && heap_profile_size_cnt > 0) {
+    heap_profile_size_cnt--;
+    return true;
+  }
+  return false;
+}
 
 static void* ProfilerMalloc(size_t bytes) {
   return LowLevelAlloc::AllocWithArena(bytes, heap_profiler_memory);
@@ -203,7 +222,7 @@ static char* DoGetHeapProfileLocked(char* buf, int buflen) {
 
   return buf;
 }
-
+// 随时dump数据
 extern "C" char* GetHeapProfile() {
   // Use normal malloc: we return the profile to the user to free it:
   char* buffer = reinterpret_cast<char*>(malloc(kProfileBufferSize));
@@ -235,6 +254,7 @@ static void DumpProfileLocked(const char* reason) {
   RAW_VLOG(0, "Dumping heap profile to %s (%s)", file_name, reason);
   // We must use file routines that don't access memory, since we hold
   // a memory lock now.
+  // 输出日志到指定文件，filename_prefix为HeapProfilerStart中指定的路径
   RawFD fd = RawOpenForWriting(file_name);
   if (fd == kIllegalRawFD) {
     RAW_LOG(ERROR, "Failed dumping heap profile to %s. Numeric errno is %d", file_name, errno);
@@ -301,6 +321,7 @@ static void MaybeDumpProfileLocked() {
       }
     }
     if (need_to_dump) {
+      // 真正输出日志的地方
       DumpProfileLocked(buf);
 
       last_dump_alloc = total.alloc_size;
@@ -311,14 +332,23 @@ static void MaybeDumpProfileLocked() {
   }
 }
 
+/* tcmalloc返回地址ptr作为key，bytes作为size */
 // Record an allocation in the profile.
 static void RecordAlloc(const void* ptr, size_t bytes, int skip_count) {
   // Take the stack trace outside the critical section.
+  if (!is_target_size(bytes)) {
+    return;
+  }
   void* stack[HeapProfileTable::kMaxStackDepth];
-  int depth = HeapProfileTable::GetCallerStackTrace(skip_count + 1, stack);
+  /* 先获取栈信息，skip_count表示跳过的stack frame数量 */
+  int depth = 0;
+  if (!FLAGS_heap_profile_no_stack) {
+    depth = HeapProfileTable::GetCallerStackTrace(skip_count + 1, stack);
+  }
   SpinLockHolder l(&heap_lock);
   if (is_on) {
     heap_profile->RecordAlloc(ptr, bytes, depth, stack);
+    // 如果满足条件就输出日志
     MaybeDumpProfileLocked();
   }
 }

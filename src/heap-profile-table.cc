@@ -286,11 +286,12 @@ int HeapProfileTable::UnparseBucket(const Bucket& b,
     profile_stats->free_size += b.free_size;
   }
   int printed =
-    snprintf(buf + buflen, bufsize - buflen, "%6" PRId64 ": %8" PRId64 " [%6" PRId64 ": %8" PRId64 "] @%s",
+    snprintf(buf + buflen, bufsize - buflen, "%6" PRId64 ": %8" PRId64 " [%6" PRId64 ": %8" PRId64 "] [%8 PRId64] @%s",
              b.allocs - b.frees,
              b.alloc_size - b.free_size,
              b.allocs,
              b.alloc_size,
+             b.allocs > 0 ? b.alloc_size / b.allocs : 0,
              extra);
   // If it looks like the snprintf failed, ignore the fact we printed anything
   if (printed < 0 || printed >= bufsize - buflen) return buflen;
@@ -366,6 +367,7 @@ int HeapProfileTable::FillOrderedProfile(char buf[], int size) const {
       dealloc_(list);
       return 0;
   }
+  // 解析统计到的数据然后输出
   bucket_length = UnparseBucket(total_, buf, bucket_length, size,
                                 " heapprofile", &stats);
 

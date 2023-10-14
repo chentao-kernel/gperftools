@@ -57,10 +57,13 @@ struct HeapProfileStats {
     return allocs - frees == other.allocs - other.frees &&
         alloc_size - free_size == other.alloc_size - other.free_size;
   }
-
+  // alloc的次数
   int64_t allocs;      // Number of allocation calls.
+  // free的次数
   int64_t frees;       // Number of free calls.
+  // 总共alloc的大小
   int64_t alloc_size;  // Total size of all allocated objects so far.
+  // 总共free的大小
   int64_t free_size;   // Total size of all freed objects so far.
 };
 
